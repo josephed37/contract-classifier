@@ -1,0 +1,13 @@
+pandas
+scikit-learn
+nltk
+torch
+transformers
+datasets
+accelerate 
+fastapi
+uvicorn[standard]
+notebook
+seaborn
+matplotlib
+PyMuPDF
