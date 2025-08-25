@@ -7,17 +7,17 @@ MLService class.
 
 Responsibilities:
 - Loading the fine-tuned transformer model and tokenizer from disk.
-- Providing a clean `predict` method to perform inference on raw text.
+- Providing a `predict` method for single predictions.
+- Providing a `predict_explain` method for full probability distributions.
+- Providing a `predict_batch` method for scalable batch inference.
 - Managing the model's device placement (CPU/GPU).
-
-This separation of concerns keeps the ML logic isolated from the API/web layer,
-making the application more modular, testable, and maintainable.
 """
 
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 from pathlib import Path
 import logging
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -31,33 +31,42 @@ class MLService:
         """Loads the model and tokenizer from the specified path."""
         if not model_path.exists():
             raise FileNotFoundError(f"Model directory not found at {model_path}")
-        
         logger.info(f"Loading model and tokenizer from: {model_path}")
         self.model = AutoModelForSequenceClassification.from_pretrained(model_path)
         self.model.to(self.device)
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         logger.info("Model and tokenizer loaded successfully.")
 
-    def predict(self, text: str) -> tuple[str, float]:
-        """Performs a prediction on the given text."""
-        if not self.model or not self.tokenizer:
-            raise RuntimeError("Model is not loaded. Call the load() method first.")
+    def predict(self, text: str) -> Tuple[str, float]:
+        """Performs a single prediction on the given text."""
+        inputs = self.tokenizer(text, return_tensors="pt", truncation=True, padding=True, max_length=512)
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1)
+        confidence_score, predicted_class_id = torch.max(probabilities, dim=1)
+        predicted_category = self.model.config.id2label[predicted_class_id.item()]
+        return predicted_category, confidence_score.item()
 
-        inputs = self.tokenizer(
-            text, return_tensors="pt", truncation=True, padding=True, max_length=512
-        )
+    def predict_explain_batch(self, texts: List[str]) -> List[Dict[str, float]]:
+        """Returns a list of full probability distributions for a batch of texts."""
+        if not self.model or not self.tokenizer:
+            raise RuntimeError("Model is not loaded.")
+
+        inputs = self.tokenizer(texts, return_tensors="pt", truncation=True, padding=True, max_length=512)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
             outputs = self.model(**inputs)
         
-        logits = outputs.logits
-        probabilities = torch.nn.functional.softmax(logits, dim=-1)
-        
-        confidence_score, predicted_class_id = torch.max(probabilities, dim=1)
-        predicted_category = self.model.config.id2label[predicted_class_id.item()]
-        
-        return predicted_category, confidence_score.item()
+        all_probabilities = torch.nn.functional.softmax(outputs.logits, dim=-1).tolist()
 
-# Create a single, global instance of the service to be used across the application
+        results = []
+        for probabilities in all_probabilities:
+            prob_dict = {self.model.config.id2label[i]: prob for i, prob in enumerate(probabilities)}
+            results.append(prob_dict)
+        
+        return results
+
 ml_service = MLService()
+

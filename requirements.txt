@@ -13,3 +13,4 @@ matplotlib
 PyMuPDF
 pydantic
 pytesseract
+lime
