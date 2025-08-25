@@ -12,3 +12,4 @@ seaborn
 matplotlib
 PyMuPDF
 pydantic
+pytesseract
