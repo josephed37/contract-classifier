@@ -11,3 +11,4 @@ notebook
 seaborn
 matplotlib
 PyMuPDF
+pydantic
